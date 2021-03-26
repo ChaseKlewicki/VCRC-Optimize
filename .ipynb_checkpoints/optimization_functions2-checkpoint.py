@@ -22,9 +22,6 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
     T_pod  = Inputs[1] # K
     Q_load = Inputs[2] # W
     
-    # ----------------------------------------------#
-    #==------ Params ------==#
-    
     #----------------------------------------------#
     #==-- Init. Outputs  --==#
     P = np.zeros(9) # Pa
@@ -137,65 +134,56 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
     # Make Objective Function
 
     def objective(Vars):
-        [_, _, _, _, _, _, _, _, _, _, _, COSP, _] = make_cycle(Vars, Inputs, Param)
-        Obj = -COSP
+        [_, _, _, _, _, _, _, _, _, _, _, _, Obj] = make_cycle(Vars, Inputs, Param)
+        
+        Obj = 1000 * np.linalg.norm(Obj)
+        print(Obj)
         return Obj
                         
     #
     #
     # Make Nonlinear Constraint for T_SH
 
-    def nonlcon1(Vars):
+    def nonlcon(Vars):
         c = (T_pod - CP.PropsSI('T', 'P', Vars[1], 'Q', 0, refrigerant)) - Vars[2] 
         return c
-    
-    def nonlcon2(Vars):
-        [_, _, _, _, _, _, _, _, _, _, _, _, Deficit] = make_cycle(Vars, Inputs, Param)
-        return np.abs(Deficit[1])
-    
-    def nonlcon3(Vars):
-        [_, _, _, _, _, _, _, _, _, _, _, _, Deficit] = make_cycle(Vars, Inputs, Param)
-        return np.linalg.norm([Deficit[0], Deficit[2]])
 
-    nonLinear1 = NonlinearConstraint(nonlcon1, 0, np.inf)
-    nonLinear2 = NonlinearConstraint(nonlcon2, 0, 0.01)
-    nonLinear3 = NonlinearConstraint(nonlcon3, 0, 0.05)
+    nonLinear = NonlinearConstraint(nonlcon, 0, np.inf)
     
     linear = LinearConstraint(A = np.identity(6),
-                              lb = [CP.PropsSI('P', 'T', T_amb, 'Q', 1, refrigerant), 
+                              lb = [CP.PropsSI('P', 'T', T_amb, 'Q', 1, refrigerant),
                                     CP.PropsSI('PCRIT', refrigerant) * 0.07657817 / (1 - 0.22642082), 
                                     0.1,
                                     0,
-                                    0,
-                                    500], # Lower Bounds
+                                    700,
+                                    700], # Lower Bounds
                               ub = [CP.PropsSI('PCRIT', refrigerant), 
                                     CP.PropsSI('P', 'T', T_pod, 'Q', 0, refrigerant), 
                                     30,
-                                    2050,
-                                    6000,
-                                    6000], # Upper Bounds
-                                      keep_feasible=True)
+                                    2000,
+                                    10000,
+                                    10000], # Upper Bounds
+                              keep_feasible=True)
 
-    #
     # Solve the problem.
     try:
-        res = minimize(objective, Vars, constraints = [nonLinear1, nonLinear2, nonLinear3, linear], 
-                           method = 'trust-constr', options = {'maxiter': 10000})
+        res = minimize(objective, Vars, constraints = [nonLinear, linear], 
+                       method = 'trust-constr', options = {'maxiter': 1000})
     except ValueError as e:
         print(e)
         print('initial Point: ' + str(Vars))
-        res = {'success': False, 'x': Vars}
+        res = {'success': False}
     
     print(res)
+    
     # ---
     if res['success']:
-        Vars = res['x']
-        [_, _, _, _, _, _, _, _, _, _, _, COSP, _] = make_cycle(Vars, Inputs, Param)
+        Vars = res.x
+        [_, _, _, _, _, _, _, _, _, _, _, _, Deficit] = make_cycle(Vars, Inputs, Param)
     else:
-        Vars = res['x']
-        [_, _, _, _, _, _, _, _, _, _, _, COSP, _] = make_cycle(Vars, Inputs, Param)
+        Deficit = [1, 1, 1]
 
-    return [Vars, COSP]
+    return [Vars, Deficit]
 
 
 def solve_cycle_shotgun(Inputs, Param, refrigerant = 'R410a'):
@@ -237,15 +225,24 @@ def solve_cycle_shotgun(Inputs, Param, refrigerant = 'R410a'):
 
 
     #Initialize Vars and Deficits
-    COSP = np.zeros(len(Vars))
+    normDeficit = np.zeros(len(Vars))
+    Deficit     = np.zeros((len(Vars), 3))
 
     # Try different initial points
     for ind, Var in enumerate(Vars):
         #Step Vars Forward
-        [Vars[ind], COSP[ind]] = adjust_cycle_fmin( Var, Inputs, Param)
+        [Vars[ind], Deficit[ind]] = adjust_cycle_fmin( Var, Inputs, Param)
+        normDeficit[ind] = np.linalg.norm(Deficit[ind])
     
     # find solution with lowest error
-    Vars = Vars[COSP == np.nanmax(COSP)][0]
+    Vars = Vars[normDeficit == np.nanmin(normDeficit)][0]
+    
+    # Check if error is lower than 3% 
+    converged = 1
+    if normDeficit[normDeficit == np.nanmin(normDeficit)] > 0.05:
+        converged = 0
+        warnings.warn('Warning: |Deficit| = ' + 
+                      str(normDeficit[normDeficit == min(normDeficit)]))
 
     #Calc
     [P, T, h, s, abscissa, m_dot, Q_L, Q_H, W_comp, W_fan_c, W_fan_e, COSP, Deficit] = make_cycle(Vars, 
