@@ -77,7 +77,15 @@ def generate_HTCOEFF(P, m_dot_i, subsys, T_o, RPM, x_in, refrigerant = 'R410a'):
         # Initialize dp
         dP = 1
         
+        # instability control
+        num_of_iters = 0
+        
         while np.abs(guess - dP) > 0.1:
+            
+            num_of_iters = num_of_iters + 1
+            
+            if num_of_iters > 1000:
+                raise ValueError('Volume flow rate Calc Divergent ' + subsys + " " + str(RPM))
             
             # Use new dP as next guess
             guess = dP
@@ -356,10 +364,19 @@ def generate_HTCOEFF(P, m_dot_i, subsys, T_o, RPM, x_in, refrigerant = 'R410a'):
         # Initialize dp
         dP = 1
         
+        # instability control
+        num_of_iters = 0
+        
         while np.abs(guess - dP) > 0.1:
             
+            num_of_iters = num_of_iters + 1
+            
+            if num_of_iters > 1000:
+                raise ValueError('Volume flow rate Calc Divergent ' + subsys + " " + str(RPM))
+                
             # Use new dP as next guess
             guess = dP
+            
             # Compute fan work and volumetric flow rate based on fan rpm
             [V_dot_o, W_fan] = blower(RPM, guess)
             

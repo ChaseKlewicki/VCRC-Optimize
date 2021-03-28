@@ -9,18 +9,21 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
 
     # ----------------------------------------------#
     # ==------ Vars  -------==#
-    P_c    = Vars[0] # Pa
-    P_e    = Vars[1] # Pa
-    T_SH   = Vars[2] # delta-T K
-    RPM    = Vars[3]
-    RPM_cond = Vars[4]
-    RPM_evap = Vars[5]
+    RPM    = Vars[0]
+    RPM_cond = Vars[1]
+    RPM_evap = Vars[2]
+    
     # ----------------------------------------------#
     #==------ Inputs ------==#
-    
     T_amb  = Inputs[0] # K
     T_pod  = Inputs[1] # K
     Q_load = Inputs[2] # W
+    
+    # ----------------------------------------------#
+    #==------ Params ------==#
+    P_c    = Param[0] # Pa
+    P_e    = Param[1] # Pa
+    T_SH   = Param[2] # delta-T K
     
     #----------------------------------------------#
     #==-- Init. Outputs  --==#
@@ -108,10 +111,10 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
     m_dot = [m_dot_s, m_dot_v]
     
     # Combined efficiency (Regression determined empirically)
-    eta_comb = (2000 / RPM) / (P_c / P_e * -20.08195633 + 76.97218476)
+    eta_comb = (P_c / P_e * 0.0343053 - 0.048315)
     
-    if eta_comb < 0 or eta_comb > 1:
-        warnings.warn('Infeasible Combined Efficiency: ' + str(eta_comb))
+#     if eta_comb < 0 or eta_comb > 1:
+#         warnings.warn('Infeasible Combined Efficiency: ' + str(eta_comb))
     
     # Compute compressor work based on isentropic, adiabatic compressor
     W_comp = m_dot_s * (h[1] - h[0]) / eta_comb
@@ -150,17 +153,11 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
 
     nonLinear = NonlinearConstraint(nonlcon, 0, np.inf)
     
-    linear = LinearConstraint(A = np.identity(6),
-                              lb = [CP.PropsSI('P', 'T', T_amb, 'Q', 1, refrigerant),
-                                    CP.PropsSI('PCRIT', refrigerant) * 0.07657817 / (1 - 0.22642082), 
-                                    0.1,
+    linear = LinearConstraint(A = np.identity(3),
+                              lb = [0,
                                     0,
-                                    700,
-                                    700], # Lower Bounds
-                              ub = [CP.PropsSI('PCRIT', refrigerant), 
-                                    CP.PropsSI('P', 'T', T_pod, 'Q', 0, refrigerant), 
-                                    30,
-                                    2000,
+                                    0], # Lower Bounds
+                              ub = [2000,
                                     10000,
                                     10000], # Upper Bounds
                               keep_feasible=True)
@@ -184,70 +181,3 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
         Deficit = [1, 1, 1]
 
     return [Vars, Deficit]
-
-
-def solve_cycle_shotgun(Inputs, Param, refrigerant = 'R410a'):
-    
-    T_amb  = Inputs[0] # K
-    T_pod  = Inputs[1] # K
-    
-    SPREAD = 3;
-
-    # evaporator bounds
-    lb = [CP.PropsSI('P', 'T', T_amb, 'Q', 1, refrigerant),
-          CP.PropsSI('PCRIT', refrigerant) * 0.07657817 / (1 - 0.22642082)] # lower bound for evap and cond Pressures
-    ub = [CP.PropsSI('PCRIT', refrigerant), 
-          CP.PropsSI('P', 'T', T_pod, 'Q', 0, refrigerant)] # upper bound for evap and compression ratio bound for cond
-    
-    # Initial guess for superheat
-    T_SH  = 0.5
-    
-    # Initial guess for compressor RPM
-    RPM  = 2000
-    
-    # Initial guess for compressor RPM
-    RPM_cond  = 2900
-    
-    # Initial guess for compressor RPM
-    RPM_evap  = 2900
-    
-    # Intialize Vars
-    Vars = np.empty((0,6))
-    
-    # Create list of Initial points in feasible region
-    P_e   = lb[1] + (ub[1] - lb[1]) * np.linspace( 0.3, 0.7, SPREAD)
-    for P in P_e:
-        if 1.23019193 / 0.62404414 * P > lb[0]:
-            P_c = P + (ub[0] - P) * np.linspace( 0.3, 0.7, SPREAD)
-        else:
-            P_c = lb[0] + (ub[0] - lb[0]) * np.linspace( 0.3, 0.7, SPREAD)
-        Vars = np.concatenate([Vars, np.array(np.meshgrid(P_c, P, T_SH, RPM, RPM_cond, RPM_evap)).T.reshape(-1,6)])
-
-
-    #Initialize Vars and Deficits
-    normDeficit = np.zeros(len(Vars))
-    Deficit     = np.zeros((len(Vars), 3))
-
-    # Try different initial points
-    for ind, Var in enumerate(Vars):
-        #Step Vars Forward
-        [Vars[ind], Deficit[ind]] = adjust_cycle_fmin( Var, Inputs, Param)
-        normDeficit[ind] = np.linalg.norm(Deficit[ind])
-    
-    # find solution with lowest error
-    Vars = Vars[normDeficit == np.nanmin(normDeficit)][0]
-    
-    # Check if error is lower than 3% 
-    converged = 1
-    if normDeficit[normDeficit == np.nanmin(normDeficit)] > 0.05:
-        converged = 0
-        warnings.warn('Warning: |Deficit| = ' + 
-                      str(normDeficit[normDeficit == min(normDeficit)]))
-
-    #Calc
-    [P, T, h, s, abscissa, m_dot, Q_L, Q_H, W_comp, W_fan_c, W_fan_e, COSP, Deficit] = make_cycle(Vars, 
-                                                                                             Inputs,
-                                                                                             Param)
-    Props = [P, T, h, s, abscissa]
-        
-    return [Props, m_dot, Q_L, Q_H, W_comp, W_fan_c, W_fan_e, COSP, Deficit, Vars]

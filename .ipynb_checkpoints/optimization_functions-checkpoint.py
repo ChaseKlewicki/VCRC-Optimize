@@ -4,6 +4,7 @@ from cycle_functions import *
 from scipy.optimize import minimize, Bounds, NonlinearConstraint, LinearConstraint
 import warnings
 import pandas as pd
+import traceback
 
 def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
 
@@ -43,6 +44,9 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
     # Calculate
     #=========================================================================#
 
+    if T_SH < 0:
+        T_SH =1e-4
+    
     # pressure drop accross evaporator (Pa)
     delta_P_e = 0
     
@@ -53,6 +57,7 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
     
     
     # Init state
+    P_crit = CP.PropsSI('Pcrit', refrigerant)
     T_sat_e = CP.PropsSI('T', 'P', P[0], 'Q', 1, refrigerant) # K
     h_g     = CP.PropsSI('H', 'P', P[0], 'Q', 1, refrigerant) # J/kg
     T[0] = T_sat_e + T_SH
@@ -111,13 +116,13 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
     m_dot = [m_dot_s, m_dot_v]
     
     # Combined efficiency (Regression determined empirically)
-    eta_comb = (2000 / RPM) / (P_c / P_e * -20.08195633 + 76.97218476)
+    eta_comb = P_crit / P_e *  0.00416802 + 0.01495443
     
-    if eta_comb < 0 or eta_comb > 1:
-        warnings.warn('Infeasible Combined Efficiency: ' + str(eta_comb))
+#     if eta_comb < 0 or eta_comb > 1:
+#         warnings.warn('Infeasible Combined Efficiency: ' + str(eta_comb))
     
     # Compute compressor work based on isentropic, adiabatic compressor
-    W_comp = m_dot_s * (h[1] - h[0]) / eta_comb
+    W_comp = m_dot_s * (h[1] - h[0]) /  eta_comb
 
     # Compute Coefficient of system performance
     COSP = Q_L / (W_comp + W_fan_c + W_fan_e)
@@ -158,35 +163,38 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
         return np.linalg.norm([Deficit[0], Deficit[2]])
 
     nonLinear1 = NonlinearConstraint(nonlcon1, 0, np.inf)
-    nonLinear2 = NonlinearConstraint(nonlcon2, 0, 0.01)
-    nonLinear3 = NonlinearConstraint(nonlcon3, 0, 0.05)
+    nonLinear2 = NonlinearConstraint(nonlcon2, 0, 0.001)
+    nonLinear3 = NonlinearConstraint(nonlcon3, 0, 0.01)
     
-    linear = LinearConstraint(A = np.identity(6),
-                              lb = [CP.PropsSI('P', 'T', T_amb, 'Q', 1, refrigerant), 
+    a = np.identity(6)[0:3,:]
+    linear1 = LinearConstraint(A = a,
+                               lb = [CP.PropsSI('P', 'T', T_amb, 'Q', 1, refrigerant), 
                                     CP.PropsSI('PCRIT', refrigerant) * 0.07657817 / (1 - 0.22642082), 
-                                    0.1,
-                                    0,
-                                    0,
-                                    500], # Lower Bounds
-                              ub = [CP.PropsSI('PCRIT', refrigerant), 
+                                    1e-4,], # Lower Bounds
+                               ub = [CP.PropsSI('PCRIT', refrigerant), 
                                     CP.PropsSI('P', 'T', T_pod, 'Q', 0, refrigerant), 
-                                    30,
-                                    2050,
+                                    30,], # Upper Bounds
+                                keep_feasible=True)
+    
+    a = np.identity(6)[3:6,:]
+    linear2 = LinearConstraint(A = a,
+                               lb = [0,
+                                    400,
+                                    400], # Lower Bounds
+                               ub = [2000,
                                     6000,
                                     6000], # Upper Bounds
-                                      keep_feasible=True)
-
-    #
+                                keep_feasible=False)
+    
     # Solve the problem.
     try:
-        res = minimize(objective, Vars, constraints = [nonLinear1, nonLinear2, nonLinear3, linear], 
+        res = minimize(objective, Vars, constraints = [nonLinear1, nonLinear2, nonLinear3, linear1, linear2], 
                            method = 'trust-constr', options = {'maxiter': 10000})
     except ValueError as e:
-        print(e)
+        print(traceback.format_exc())
         print('initial Point: ' + str(Vars))
         res = {'success': False, 'x': Vars}
-    
-    print(res)
+        
     # ---
     if res['success']:
         Vars = res['x']
@@ -196,61 +204,3 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
         [_, _, _, _, _, _, _, _, _, _, _, COSP, _] = make_cycle(Vars, Inputs, Param)
 
     return [Vars, COSP]
-
-
-def solve_cycle_shotgun(Inputs, Param, refrigerant = 'R410a'):
-    
-    T_amb  = Inputs[0] # K
-    T_pod  = Inputs[1] # K
-    
-    SPREAD = 3;
-
-    # evaporator bounds
-    lb = [CP.PropsSI('P', 'T', T_amb, 'Q', 1, refrigerant),
-          CP.PropsSI('PCRIT', refrigerant) * 0.07657817 / (1 - 0.22642082)] # lower bound for evap and cond Pressures
-    ub = [CP.PropsSI('PCRIT', refrigerant), 
-          CP.PropsSI('P', 'T', T_pod, 'Q', 0, refrigerant)] # upper bound for evap and compression ratio bound for cond
-    
-    # Initial guess for superheat
-    T_SH  = 0.5
-    
-    # Initial guess for compressor RPM
-    RPM  = 2000
-    
-    # Initial guess for compressor RPM
-    RPM_cond  = 2900
-    
-    # Initial guess for compressor RPM
-    RPM_evap  = 2900
-    
-    # Intialize Vars
-    Vars = np.empty((0,6))
-    
-    # Create list of Initial points in feasible region
-    P_e   = lb[1] + (ub[1] - lb[1]) * np.linspace( 0.3, 0.7, SPREAD)
-    for P in P_e:
-        if 1.23019193 / 0.62404414 * P > lb[0]:
-            P_c = P + (ub[0] - P) * np.linspace( 0.3, 0.7, SPREAD)
-        else:
-            P_c = lb[0] + (ub[0] - lb[0]) * np.linspace( 0.3, 0.7, SPREAD)
-        Vars = np.concatenate([Vars, np.array(np.meshgrid(P_c, P, T_SH, RPM, RPM_cond, RPM_evap)).T.reshape(-1,6)])
-
-
-    #Initialize Vars and Deficits
-    COSP = np.zeros(len(Vars))
-
-    # Try different initial points
-    for ind, Var in enumerate(Vars):
-        #Step Vars Forward
-        [Vars[ind], COSP[ind]] = adjust_cycle_fmin( Var, Inputs, Param)
-    
-    # find solution with lowest error
-    Vars = Vars[COSP == np.nanmax(COSP)][0]
-
-    #Calc
-    [P, T, h, s, abscissa, m_dot, Q_L, Q_H, W_comp, W_fan_c, W_fan_e, COSP, Deficit] = make_cycle(Vars, 
-                                                                                             Inputs,
-                                                                                             Param)
-    Props = [P, T, h, s, abscissa]
-        
-    return [Props, m_dot, Q_L, Q_H, W_comp, W_fan_c, W_fan_e, COSP, Deficit, Vars]
