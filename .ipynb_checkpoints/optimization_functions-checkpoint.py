@@ -118,11 +118,8 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
     # Combined efficiency (Regression determined empirically)
     eta_comb = P_crit / P_e *  0.00416802 + 0.01495443
     
-#     if eta_comb < 0 or eta_comb > 1:
-#         warnings.warn('Infeasible Combined Efficiency: ' + str(eta_comb))
-    
     # Compute compressor work based on isentropic, adiabatic compressor
-    W_comp = m_dot_s * (h[1] - h[0]) /  eta_comb
+    W_comp = m_dot_s * (h[1] - h[0]) / eta_comb
 
     # Compute Coefficient of system performance
     COSP = Q_L / (W_comp + W_fan_c + W_fan_e)
