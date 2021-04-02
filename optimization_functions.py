@@ -23,8 +23,8 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
     T_pod  = Inputs[1] # K
     Q_load = Inputs[2] # W
     
-    # ----------------------------------------------#
-    #==------ Params ------==#
+    #----------------------------------------------#
+    #==------ Param -------==#
     
     #----------------------------------------------#
     #==-- Init. Outputs  --==#
@@ -72,7 +72,7 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
     P[1] = P_c
     
     # Isentropic Ratio
-    eta_is = 5.15 * RPM / 2000
+    eta_is = 5.15
     
     if 1 / eta_is < 0 or 1 / eta_is > 1:
         warnings.warn('Infeasible isentropic Efficiency: ' + str(eta_is))
@@ -87,7 +87,7 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
                                                              'h', m_dot_s, T_amb, delta_P_c, RPM_cond, refrigerant)
 
     #   calculate expansion
-    m_dot_v = capillary_tube_func(P[4], T[4], refrigerant)
+    m_dot_v = capillary_tube_func(P[4], T[4], h[4], refrigerant)
     
     P[5] = P_e
     # Isenthalpic expansion
@@ -108,7 +108,7 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
 
     m_def  =  (m_dot_s - m_dot_v) / m_dot_s  #Mass Deficit
     h_def  =  (h[0] - h[8]) / h[0]# h deficit
-    Q_def  =  (Q_L  - Q_load) / Q_load   #Pod energy deficit
+    Q_def  =  (Q_load - Q_L) / Q_load   #Pod energy deficit
 
     Deficit = np.array([m_def, h_def, Q_def])
 
@@ -166,7 +166,7 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
     a = np.identity(6)[0:3,:]
     linear1 = LinearConstraint(A = a,
                                lb = [CP.PropsSI('P', 'T', T_amb, 'Q', 1, refrigerant), 
-                                    CP.PropsSI('PCRIT', refrigerant) * 0.07657817 / (1 - 0.22642082), 
+                                    300e3, 
                                     1e-4,], # Lower Bounds
                                ub = [CP.PropsSI('PCRIT', refrigerant), 
                                     CP.PropsSI('P', 'T', T_pod, 'Q', 0, refrigerant), 
@@ -175,12 +175,12 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
     
     a = np.identity(6)[3:6,:]
     linear2 = LinearConstraint(A = a,
-                               lb = [0,
-                                    400,
-                                    400], # Lower Bounds
-                               ub = [2000,
-                                    6000,
-                                    6000], # Upper Bounds
+                               lb = [1500,
+                                    750,
+                                    500], # Lower Bounds
+                               ub = [2500,
+                                    5000,
+                                    5000], # Upper Bounds
                                 keep_feasible=False)
     
     # Solve the problem.
@@ -192,11 +192,14 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
         print('initial Point: ' + str(Vars))
         res = {'success': False, 'x': Vars}
         
+    print(res)
+        
     # ---
     if res['success']:
         Vars = res['x']
         [_, _, _, _, _, _, _, _, _, _, _, COSP, _] = make_cycle(Vars, Inputs, Param)
     else:
+        print('failed')
         Vars = res['x']
         [_, _, _, _, _, _, _, _, _, _, _, COSP, _] = make_cycle(Vars, Inputs, Param)
 

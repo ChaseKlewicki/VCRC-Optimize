@@ -234,7 +234,7 @@ def generate_HTCOEFF(P, m_dot_i, subsys, T_o, RPM, x_in, refrigerant = 'R410a'):
             j = 0.086 * Re_dc ** C3 * Nr ** C4 * (pf / dc) ** C5 * (pf / D_h) ** C6 * (pf / xt) ** -0.93
 
             # exponents from correlation
-            F1 = -0.764 + 0.739 * (xt /xl) + 0.177 * (pf / dc) - 0.00758 / Nr
+            F1 = -0.764 + 0.739 * (xt / xl) + 0.177 * (pf / dc) - 0.00758 / Nr
 
             F2 = -15.689 + 64.021 / np.log(Re_dc)
 
@@ -735,19 +735,26 @@ def Condenser_Proc(input_state, strarg, flowrate, T_amb, P_drop, RPM, refrigeran
     # and inlet temperature otherwise go straight to subcooled
     if (T_amb - T_in) < 0  and (T_amb - T_sat) < 0:
         
-        dz_1 = c_p_g  * flowrate / UA_g * - np.log((T_sat - T_amb) / (T_in - T_amb))
+        # Check if superheated
+        if h_in > h_g:
+            dz_1 = c_p_g  * flowrate / UA_g * - np.log((T_sat - T_amb) / (T_in - T_amb))
 
-        #Add exception if superheated phase takes up the
-        #entire HX domain
-        if (dz_1 > 1):
-            raise ValueError('no exception when superheated' +
-                             ' phase takes up entire domain')
-
-
-        T[1] = T_sat
-        h[1] = h_g
+            #Add exception if superheated phase takes up the
+            #entire HX domain
+            if (dz_1 > 1):
+                raise ValueError('no exception when superheated' +
+                                 ' phase takes up entire domain')
 
 
+            T[1] = T_sat
+            h[1] = h_g
+        
+        # Else Two Phase
+        else:
+            T[1] = T_in
+            h[1] = h_in
+            dz_1 = 0
+            
         #--- SatVap-into-SatLiq Process ---
         dz_2 = flowrate * h_fg / (UA_TP * (T_sat - T_amb))
 
@@ -846,7 +853,7 @@ def Evap_Proc(input_state, flowrate, T_pod, P_drop, RPM, refrigerant = 'R410a'):
     #
     h_in  = input_state[1]
 
-    T_sat = CP.PropsSI('T', 'P', P_in, 'Q', 1, refrigerant)
+    T_sat = CP.PropsSI('T', 'P', P_in, 'Q', 0, refrigerant)
     h_f   = CP.PropsSI('H', 'P', P_in, 'Q', 0, refrigerant)
     h_g   = CP.PropsSI('H', 'P', P_in, 'Q', 1, refrigerant)
     h_fg  = h_g - h_f    
@@ -938,6 +945,7 @@ def Evap_Proc(input_state, flowrate, T_pod, P_drop, RPM, refrigerant = 'R410a'):
     else: # Otherwise go to superheat process  
         # assign output
         #-----------------
+        T_sat = CP.PropsSI('T', 'P', P_in, 'Q', 1, refrigerant)
         T[2] = T_sat
         h[2] = h_g
         #-----------------      
@@ -991,14 +999,14 @@ def valve_func( CA_param, P_up, P_down, x):
     return  m_dot
 
 
-def capillary_tube_func(P_in, T_in, refrigerant = 'R410a'):
+def capillary_tube_func(P_in, T_in, h_in, refrigerant = 'R410a'):
     # Mass flow rate correlation from 1998 ASHRAE Hand Book. chp 44
     
     # Diameter of capillary tube coil 4"
     D = 4 * 0.0254
 
-    # 1/16" in OD copper tubing, .02s" wall thickness
-    d = 0.0325 * 0.0254
+    # 1/16" in OD copper tubing, .018" wall thickness
+    d = (1/16 - 2 *.0179) * 0.0254
 
     # length of capillary tube. 4 loops
     L = D * np.pi  * 4
@@ -1040,22 +1048,29 @@ def capillary_tube_func(P_in, T_in, refrigerant = 'R410a'):
     # A generalized continuous empirical correlation for predicting refrigerant
     # mass flow rates through adiabatic capillary tubes
 
-    pi_1 = P_in * d**2 / v_f / mu_f**2
-    pi_2 = L / d
-    pi_3 = T_sub * C_pf * d**2 / v_f**2 / mu_f**2 
-    pi_4 = d**2 * h_fg / v_f**2 / mu_f**2
-    pi_5 = d * sigma / v_f / mu_f**2
-    pi_6 = D / d
-    pi_8 = v_g / v_f
-    pi_9 = (mu_f - mu_g) / mu_g
-  
-    if T_sub < 0:
+    pi_1 = L / d
+    pi_2 = d**2 * h_fg / v_f**2 / mu_f**2 
+    pi_4 = P_in * d**2 / v_f / mu_f**2
+    pi_5 = T_sub * C_pf * d**2 / v_f**2 / mu_f**2 
+    pi_6 = v_g / v_f
+    pi_7 = (mu_f - mu_g) / mu_g
+    
+    # If Two Phase: meter flow
+    if T_sub <= 1: 
         warnings.warn('Cavitation in expansion valve')
-        m_dot = 1e-8 # Essentially zero
-    else:
-        pi_7 = 1.8925 * pi_1**1.369 * pi_2**-0.484 * pi_4**-0.824 * pi_8**0.773 * pi_9 **0.265 
+#         pi_5 = (h_in - h_f) / h_fg
+#         if pi_5 < 0.03:
+#             pi_5 = 0.03
+            
+#         pi_8 = 187.27 * pi_1**-0.635 * pi_2 **-0.189  * pi_4**0.645 * pi_5**-0.163 * pi_6**-0.213 * pi_7 **-0.483 
+        m_dot = 1e-5
         
-        m_dot = pi_7 * 2 * d * mu_f
+    # Else subcooled: Valid from 1 to 16 C
+    else:
+        pi_8 = 1.8925 * pi_1**-0.484 * pi_2 **-0.824  * pi_4**1.369 * pi_5**0.0187 * pi_6**0.773 * pi_7 **0.265 
+        
+        # Two tubes
+        m_dot = 2 * pi_8 * d * mu_f
     
     return m_dot
 
