@@ -560,17 +560,17 @@ def example_plots1(save = False):
     # Plot
     fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(2.4*4, 1*4))
     ax = plt.subplot(121)
-    plt.plot(vaporDomeS, vaporDomeT, '-')
+    plt.plot(vaporDomeS, vaporDomeT, '--k')
     txt = list(range(1, 7)) + list(range(8,9))
 
     for ind, s in enumerate(idealEntropy):
         if ind == len(idealEnthalpy) - 1:
             break
         plt.annotate(str(txt[ind]), (idealEntropy[ind] + 10, idealTemperature[ind] + 1))
-    plt.plot(idealEntropy, idealTemperature, 'o-')
+    plt.plot(idealEntropy, idealTemperature, 'o-k')
 
-    plt.plot([500, 2000],[outsideTemp, outsideTemp], 'r--')
-    plt.plot([500, 2000],[insideTemp, insideTemp], 'c--')
+    plt.plot([500, 2000],[outsideTemp, outsideTemp], 'k.-')
+    plt.plot([500, 2000],[insideTemp, insideTemp], 'k..')
     plt.ylabel('Temperature')
     plt.xlabel('Entropy')
     plt.legend(['Vapor Dome', 'Ideal Cycle', 'Ambient Temperature', 'Intertior Temperature'])

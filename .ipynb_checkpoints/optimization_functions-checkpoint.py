@@ -161,13 +161,13 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
 
     nonLinear1 = NonlinearConstraint(nonlcon1, 0, np.inf)
     nonLinear2 = NonlinearConstraint(nonlcon2, 0, 0.001)
-    nonLinear3 = NonlinearConstraint(nonlcon3, 0, 0.01)
+    nonLinear3 = NonlinearConstraint(nonlcon3, 0, 0.03)
     
     a = np.identity(6)[0:3,:]
     linear1 = LinearConstraint(A = a,
                                lb = [CP.PropsSI('P', 'T', T_amb, 'Q', 1, refrigerant), 
                                     300e3, 
-                                    1e-4,], # Lower Bounds
+                                    0,], # Lower Bounds
                                ub = [CP.PropsSI('PCRIT', refrigerant), 
                                     CP.PropsSI('P', 'T', T_pod, 'Q', 0, refrigerant), 
                                     30,], # Upper Bounds
@@ -178,9 +178,9 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
                                lb = [1500,
                                     750,
                                     500], # Lower Bounds
-                               ub = [2500,
-                                    5000,
-                                    5000], # Upper Bounds
+                               ub = [2000,
+                                    2900,
+                                    2900], # Upper Bounds
                                 keep_feasible=False)
     
     # Solve the problem.
