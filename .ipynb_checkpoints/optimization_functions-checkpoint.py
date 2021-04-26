@@ -45,7 +45,7 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
     #=========================================================================#
 
     if T_SH < 0:
-        T_SH =1e-4
+        T_SH =1e-8
     
     # pressure drop accross evaporator (Pa)
     delta_P_e = 0
@@ -116,7 +116,7 @@ def make_cycle(Vars, Inputs, Param, refrigerant = 'R410a'):
     m_dot = [m_dot_s, m_dot_v]
     
     # Combined efficiency (Regression determined empirically)
-    eta_comb = P_crit / P_e *  0.00416802 + 0.01495443
+    eta_comb = P_e / P_crit * -0.17038982 + 0.06849746
     
     # Compute compressor work based on isentropic, adiabatic compressor
     W_comp = m_dot_s * (h[1] - h[0]) / eta_comb
@@ -160,8 +160,8 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
         return np.linalg.norm([Deficit[0], Deficit[2]])
 
     nonLinear1 = NonlinearConstraint(nonlcon1, 0, np.inf)
-    nonLinear2 = NonlinearConstraint(nonlcon2, 0, 0.001)
-    nonLinear3 = NonlinearConstraint(nonlcon3, 0, 0.03)
+    nonLinear2 = NonlinearConstraint(nonlcon2, 0, 0.01)
+    nonLinear3 = NonlinearConstraint(nonlcon3, 0, 0.01)
     
     a = np.identity(6)[0:3,:]
     linear1 = LinearConstraint(A = a,
@@ -176,17 +176,17 @@ def adjust_cycle_fmin(Vars, Inputs, Param, refrigerant = 'R410a'):
     a = np.identity(6)[3:6,:]
     linear2 = LinearConstraint(A = a,
                                lb = [1500,
-                                    750,
-                                    500], # Lower Bounds
+                                    520,
+                                    300], # Lower Bounds
                                ub = [2000,
-                                    2900,
-                                    2900], # Upper Bounds
+                                    2000,
+                                    1700], # Upper Bounds
                                 keep_feasible=False)
     
     # Solve the problem.
     try:
         res = minimize(objective, Vars, constraints = [nonLinear1, nonLinear2, nonLinear3, linear1, linear2], 
-                           method = 'trust-constr', options = {'maxiter': 10000})
+                           method = 'trust-constr', options = {'maxiter': 1000, 'xtol':1e-6})
     except ValueError as e:
         print(traceback.format_exc())
         print('initial Point: ' + str(Vars))

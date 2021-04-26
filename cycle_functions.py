@@ -15,7 +15,7 @@ def compr_func( inlet_state, RPM, P_c, refrigerant = 'R410a'):
     P_crit = CP.PropsSI('Pcrit', refrigerant)
 
     # Volumetric efficiency
-    eta_v = P_crit / P_c * 0.11486726 + 0.33963123
+    eta_v = P_c / P_crit * -0.51833185 + 0.83052685
 
     Disp = 5.25E-6    # [m^3 per rev] #volume displacement
     
@@ -1076,19 +1076,19 @@ def capillary_tube_func(P_in, T_in, h_in, refrigerant = 'R410a'):
 
 
 def HT_900(RPM, dP):
-    # Fan performance based on honeywell HT_900 fan
+    # Fan performance based on honeywell HT_900c fan
     
-    W = 40 * (RPM / 2900)**3 # W
+    W = 40 * (RPM / 2000)**3 # W
     
     # Head Pressure intercept on fan curve (Pa)
-    intercept_P = 185 * (RPM / 2900)**2
+    intercept_P = 185 * (RPM / 2000)**2
     
     # Volume flow rate intercept on fan curve (m^3/s)
-    intercept_V_dot = RPM * 185 / 2900 * 0.00047194745 
+    intercept_V_dot = RPM * 185 / 2000 * 0.00047194745 
     
     if dP > intercept_P:
         V_dot = 1e-8 # very small
-        W = 40 * (RPM / 2900)**3
+        W = 40 * (RPM / 2000)**3
     
     else:
         # Create fan curve for given RPM
@@ -1099,19 +1099,19 @@ def HT_900(RPM, dP):
 
 
 def blower(RPM, dP):
-    # Fan performance based on ebmpabst RER 190-39/14/2TDLOU fan
+    # Fan performance based on YDK-52B-4D
     
-    W = 80 * (RPM / 2900)**3 # W
+    W = 80 * (RPM / 1700)**3 # W
     
     # Head Pressure intercept on fan curve (Pa)
-    intercept_P = 330 * (RPM / 2900)**2
+    intercept_P = 330 * (RPM / 1700)**2
     
     # Volume flow rate intercept on fan curve (m^3/s)
-    intercept_V_dot = RPM * 330 / 2900 * 0.00047194745 
+    intercept_V_dot = RPM * 330 / 1700 * 0.00047194745 
     
     if dP > intercept_P:
         V_dot = 1e-8 # very small
-        W = 80 * (RPM / 2900)**3
+        W = 80 * (RPM / 1700)**3
     
     else:
         # Create fan curve for given RPM
